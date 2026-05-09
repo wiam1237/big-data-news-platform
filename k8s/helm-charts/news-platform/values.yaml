@@ -1,0 +1,33 @@
+namespace: bigdata-news
+
+kafka:
+  enabled: true
+  replicas: 3
+  image: bitnami/kafka:3.5
+
+minio:
+  enabled: true
+  replicas: 1
+  rootUser: "minioadmin"
+  rootPassword: "minioadmin"
+  persistence:
+    size: 20Gi
+    storageClass: standard
+
+postgres:
+  enabled: true
+  replicas: 1
+  username: "dwh_user"
+  password: "dwh_pass"
+  database: "dwh_db"
+  persistence:
+    size: 10Gi
+
+airflow:
+  enabled: true
+  webserverReplicas: 1
+  schedulerReplicas: 1
+
+metabase:
+  enabled: true
+  replicas: 1
