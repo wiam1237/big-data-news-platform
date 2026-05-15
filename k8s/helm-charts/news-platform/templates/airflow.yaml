@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-airflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: airflow
+  template:
+    metadata:
+      labels:
+        app: airflow
+    spec:
+      containers:
+      - name: webserver
+        image: apache/airflow:2.8.1-python3.10
+        command: ["bash", "-c", "airflow db init && airflow users create --username admin --firstname admin --lastname admin --role Admin --email admin@example.com --password admin && airflow webserver"]
+        ports:
+        - containerPort: 8080
+        env:
+        - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
+          value: "postgresql+psycopg2://airflow:airflow@{{ .Release.Name }}-postgres:5432/airflow"
+        - name: AIRFLOW__CORE__EXECUTOR
+          value: "LocalExecutor"
+      - name: scheduler
+        image: apache/airflow:2.8.1-python3.10
+        command: ["airflow", "scheduler"]
+        env:
+        - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
+          value: "postgresql+psycopg2://airflow:airflow@{{ .Release.Name }}-postgres:5432/airflow"
+        - name: DB_CONN
+          value: "postgresql+psycopg2://dwh_user:dwh_pass@{{ .Release.Name }}-postgres:5432/dwh_db"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-airflow
+spec:
+  type: NodePort
+  ports:
+  - port: 8080
+    targetPort: 8080
+    nodePort: 30080
+  selector:
+    app: airflow

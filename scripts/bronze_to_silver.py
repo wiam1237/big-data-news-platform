@@ -60,8 +60,9 @@ def process_bronze_to_silver():
             content = response.read().decode('utf-8')
             article = json.loads(content)
             
-            # Qualité de données: Exclusion si titre manquant ou contenu trop court
-            if not article.get('title') or len(str(article.get('content', ''))) < 20:
+            # Qualité de données: Exclusion si titre manquant, contenu trop court ou DATE manquante
+            if not article.get('title') or len(str(article.get('content', ''))) < 20 or not article.get('published_date'):
+                print(f"Article rejeté (Qualité): {obj.object_name}")
                 continue
                 
             # Nettoyage
@@ -70,6 +71,15 @@ def process_bronze_to_silver():
             
             # Détection de la langue
             article['language'] = detect_language(article['content'])
+            
+            # Mapping pays simplifié (peut être enrichi)
+            source = article.get('source', '').lower()
+            if 'hespress' in source or 'akhbarona' in source or 'barlamane' in source:
+                article['country'] = 'Morocco'
+            elif 'bbc' in source or 'reuters' in source or 'cnn' in source:
+                article['country'] = 'International'
+            else:
+                article['country'] = 'Unknown'
             
             data_list.append(article)
             processed_files.append(obj.object_name)

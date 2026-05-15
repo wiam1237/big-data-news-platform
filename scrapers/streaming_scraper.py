@@ -11,53 +11,67 @@ from kafka import KafkaProducer
 KAFKA_BROKER = os.getenv('KAFKA_BROKER', 'localhost:9092')
 TOPIC_NAME = 'news_streaming'
 
-# Setup Kafka Producer
-producer = KafkaProducer(
-    bootstrap_servers=[KAFKA_BROKER],
-    value_serializer=lambda v: json.dumps(v).encode('utf-8')
-)
 
-def scrape_bbc_mock():
-    # En situation réelle, on scraperait les vrais articles.
-    # Pour ne pas surcharger le serveur BBC et risquer un ban IP, on simule 
-    # la récupération des articles, ou l'on scrape un flux RSS simple.
+
+import feedparser
+
+def scrape_bbc_live():
+    """
+    Scrape le flux RSS de BBC News pour obtenir des articles réels en streaming.
+    """
+    rss_url = "http://feeds.bbci.co.uk/news/rss.xml"
+    feed = feedparser.parse(rss_url)
+    articles = []
     
-    # Ici, nous simulerons des événements continus pour démontrer le streaming.
-    categories = ['Politics', 'Technology', 'Sports', 'Health', 'Economy']
-    authors = ['John Doe', 'Jane Smith', 'Alice Johnson', 'Bob Brown']
-    titles = [
-        "Global Markets Rally on Tech Earnings",
-        "New AI Model Surpasses Human Performance",
-        "Climate Change Summit Ends with New Pledges",
-        "Football Championship Finals Reached Record Viewership",
-        "Breakthrough in Quantum Computing Announced"
-    ]
-    
-    article = {
-        "title": random.choice(titles) + f" - {random.randint(1,100)}",
-        "author": random.choice(authors),
-        "published_date": datetime.utcnow().isoformat(),
-        "category": random.choice(categories),
-        "content": "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ceci est un contenu d'article simulé pour le streaming en continu sans HTML complexe.",
-        "source": "BBC streaming mock",
-        "url": f"https://bbc.com/news/mock-{random.randint(1000, 9999)}",
-        "type": "streaming"
-    }
-    return article
+    for entry in feed.entries:
+        article = {
+            "title": entry.title,
+            "author": entry.get('author', 'BBC News'),
+            "published_date": entry.get('published', datetime.utcnow().isoformat()),
+            "category": entry.get('category', 'News'),
+            "content": entry.summary if 'summary' in entry else entry.title,
+            "source": "BBC News",
+            "url": entry.link,
+            "type": "streaming"
+        }
+        articles.append(article)
+    return articles
 
 def start_streaming():
-    print(f"Starting streaming scraper... connecting to {KAFKA_BROKER}")
+    print(f"Starting REAL streaming scraper... connecting to {KAFKA_BROKER}")
+    producer = None
+    processed_urls = set()
+    
     while True:
         try:
-            article = scrape_bbc_mock()
-            producer.send(TOPIC_NAME, article)
-            print(f"Sent article to Kafka: {article['title']}")
-            time.sleep(10) # Envoi d'un événement toutes les 10 secondes
+            if producer is None:
+                producer = KafkaProducer(
+                    bootstrap_servers=[KAFKA_BROKER],
+                    value_serializer=lambda v: json.dumps(v).encode('utf-8')
+                )
+            
+            articles = scrape_bbc_live()
+            new_articles_count = 0
+            
+            for article in articles:
+                if article['url'] not in processed_urls:
+                    producer.send(TOPIC_NAME, article)
+                    processed_urls.add(article['url'])
+                    new_articles_count += 1
+                    # Maintenir la taille du set pour éviter de saturer la mémoire
+                    if len(processed_urls) > 1000:
+                        processed_urls.clear()
+            
+            if new_articles_count > 0:
+                print(f"Sent {new_articles_count} NEW articles to Kafka from BBC.")
+            
+            time.sleep(30) # Vérifier les nouveaux articles toutes les 30 secondes
         except Exception as e:
-            print(f"Error scraping or sending to Kafka: {e}")
-            time.sleep(5)
+            print(f"Error in streaming scraper: {e}")
+            producer = None
+            time.sleep(10)
 
 if __name__ == "__main__":
     # Attendre que Kafka soit prêt
-    time.sleep(15) 
+    time.sleep(20) 
     start_streaming()

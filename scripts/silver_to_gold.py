@@ -3,6 +3,8 @@ import pandas as pd
 from minio import Minio
 from sqlalchemy import create_engine
 import io
+import re
+from collections import Counter
 
 # Configuration
 MINIO_ENDPOINT = os.getenv('MINIO_ENDPOINT', 'localhost:9000').replace('http://', '')
@@ -25,6 +27,16 @@ engine = create_engine(DB_CONN)
 def ensure_bucket(bucket_name):
     if not minio_client.bucket_exists(bucket_name):
         minio_client.make_bucket(bucket_name)
+
+def extract_keywords(text_series, top_n=20):
+    # Simple keyword extraction (word frequency)
+    all_text = " ".join(text_series.fillna('').astype(str))
+    words = re.findall(r'\w{4,}', all_text.lower()) # words with 4+ chars
+    # Basic stop words
+    stop_words = {'avec', 'dans', 'pour', 'plus', 'avec', 'cette', 'fait', 'etre', 'mais', 'nous', 'vous', 'elles'}
+    words = [w for w in words if w not in stop_words and not w.isdigit()]
+    counts = Counter(words)
+    return counts.most_common(top_n)
 
 def process_silver_to_gold():
     ensure_bucket(GOLD_BUCKET)
@@ -60,7 +72,7 @@ def process_silver_to_gold():
     
     # 1. Ecriture dans Data Warehouse: PostgreSQL (Gold)
     # Insert Fact Table
-    fact_cols = ['title', 'author', 'published_date', 'category', 'source', 'url', 'language', 'ingested_at']
+    fact_cols = ['title', 'author', 'published_date', 'category', 'source', 'url', 'language', 'country', 'ingested_at']
     fact_df = final_df[[c for c in fact_cols if c in final_df.columns]].copy()
     fact_df.to_sql('fact_articles', engine, if_exists='append', index=False)
     
@@ -68,7 +80,6 @@ def process_silver_to_gold():
     if 'date_only' in final_df.columns:
         agg_day = final_df.groupby('date_only').size().reset_index(name='article_count')
         agg_day.rename(columns={'date_only': 'published_date'}, inplace=True)
-        # Upsert logic can be complex in pandas, we'll append for simplicity or replace
         agg_day.to_sql('agg_articles_per_day', engine, if_exists='replace', index=False)
         
     if 'category' in final_df.columns:
@@ -78,6 +89,17 @@ def process_silver_to_gold():
     if 'source' in final_df.columns:
         agg_source = final_df.groupby('source').size().reset_index(name='article_count')
         agg_source.to_sql('agg_articles_per_source', engine, if_exists='replace', index=False)
+
+    if 'country' in final_df.columns:
+        agg_country = final_df.groupby('country').size().reset_index(name='article_count')
+        agg_country.to_sql('agg_articles_per_country', engine, if_exists='replace', index=False)
+
+    # Keyword extraction from titles
+    if 'title' in final_df.columns:
+        top_k = extract_keywords(final_df['title'])
+        k_df = pd.DataFrame(top_k, columns=['keyword', 'frequency'])
+        k_df.to_sql('agg_top_keywords', engine, if_exists='replace', index=False)
+
 
     # 2. Sauvegarde sous forme analytique dans le Gold Bucket (Parquet)
     parquet_buffer = io.BytesIO()

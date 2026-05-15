@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-scrapers
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: news-scrapers
+  template:
+    metadata:
+      labels:
+        app: news-scrapers
+    spec:
+      containers:
+      - name: streaming-scraper
+        image: projetarchitecturededonnees-streaming-scraper:latest
+        imagePullPolicy: Never
+        env:
+        - name: KAFKA_BROKER
+          value: "{{ .Release.Name }}-kafka:9092"
+      - name: kafka-consumer
+        image: projetarchitecturededonnees-kafka-consumer:latest
+        imagePullPolicy: Never
+        env:
+        - name: KAFKA_BROKER
+          value: "{{ .Release.Name }}-kafka:9092"
+        - name: MINIO_ENDPOINT
+          value: "{{ .Release.Name }}-minio:9000"
+        - name: MINIO_ACCESS_KEY
+          value: "minioadmin"
+        - name: MINIO_SECRET_KEY
+          value: "minioadmin"
